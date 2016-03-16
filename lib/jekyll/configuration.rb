@@ -2,6 +2,8 @@
 
 module Jekyll
   class Configuration < Hash
+    attr_accessor :default_config_file
+
     # Default options. Overridden by values in _config.yml.
     # Strings rather than symbols are used for compatibility with YAML.
     DEFAULTS = Configuration[{
@@ -73,6 +75,10 @@ module Jekyll
       }
     }]
 
+    def self.from(other_hash = {})
+      Jekyll::Utils.deep_merge_hashes DEFAULTS, other_hash
+    end
+
     # Public: Turn all keys into string
     #
     # Return a copy of the hash where all its keys are strings
@@ -111,7 +117,8 @@ module Jekyll
       when /\.ya?ml/i
         SafeYAML.load_file(filename) || {}
       else
-        raise ArgumentError, "No parser for '#{filename}' is available. Use a .toml or .y(a)ml file instead."
+        raise Jekyll::Errors::InvalidFileFormatError,
+          "No parser for '#{filename}' is available. Use a .toml or .y(a)ml file instead."
       end
     end
 
@@ -131,7 +138,7 @@ module Jekyll
           File.exist?(Jekyll.sanitized_path(source(override), "_config.#{ext}"))
         end
         config_files = Jekyll.sanitized_path(source(override), "_config.#{default}")
-        @default_config_file = true
+        self.default_config_file = true
       end
       config_files = [config_files] unless config_files.is_a? Array
       config_files
@@ -147,13 +154,13 @@ module Jekyll
       check_config_is_hash!(next_config, file)
       Jekyll.logger.info "Configuration file:", file
       next_config
-    rescue SystemCallError
-      if @default_config_file
+    rescue SystemCallError, Errno::ENOENT
+      if default_config_file
         Jekyll.logger.warn "Configuration file:", "none"
         {}
       else
-        Jekyll.logger.error "Fatal:", "The configuration file '#{file}' could not be found."
-        raise LoadError, "The Configuration file '#{file}' could not be found."
+        raise Jekyll::Errors::FileNotFoundError,
+          "The configuration file '#{file}' could not be found."
       end
     end
 
@@ -245,7 +252,7 @@ module Jekyll
       end
 
       if config.fetch('markdown', 'kramdown').to_s.downcase.eql?("maruku")
-        Jekyll.logger.abort_with "Error:", "You're using the 'maruku' " \
+        raise Jekyll::Errors::InvalidConfigurationError, "You're using the 'maruku' " \
           "Markdown processor, which has been removed as of 3.0.0. " \
           "We recommend you switch to Kramdown. To do this, replace " \
           "`markdown: maruku` with `markdown: kramdown` in your " \
@@ -316,7 +323,8 @@ module Jekyll
     # Raises an ArgumentError if given config is not a hash
     def check_config_is_hash!(extracted_config, file)
       unless extracted_config.is_a?(Hash)
-        raise ArgumentError.new("Configuration file: (INVALID) #{file}".yellow)
+        raise Jekyll::Errors::InvalidConfigurationError,
+          "The configuration file '#{file}' is invalid: it is not a Hash."
       end
     end
   end
